@@ -1,8 +1,8 @@
 use std::{collections::HashMap, fmt::Display, fs::File, path::Path, sync::Arc};
 
-use datafusion::arrow::array::AsArray;
+use datafusion::arrow::array::{Array, AsArray, OffsetSizeTrait};
 use datafusion::arrow::datatypes::{
-    DataType, Int16Type, Int32Type, Int64Type, Int8Type, SchemaRef, UInt16Type, UInt32Type, UInt64Type, UInt8Type
+    ArrowPrimitiveType, DataType, Int16Type, Int32Type, Int64Type, Int8Type, SchemaRef, UInt16Type, UInt32Type, UInt64Type, UInt8Type
 };
 use datafusion::physical_optimizer::pruning::PruningPredicate;
 use datafusion::{
@@ -214,127 +214,49 @@ impl SQLiteIndex {
             let null_counts = converter.row_group_null_counts(row_groups.iter())?;
             let null_counts = null_counts.as_primitive::<UInt64Type>();
 
+            fn extract_numeric_min_max<T: ArrowPrimitiveType>(
+                row_group: usize,
+                min_values: &dyn Array,
+                max_values: &dyn Array,
+            ) -> MinMaxStats where T::Native: Into<i64> {
+                MinMaxStats::Int(
+                    min_values.as_primitive::<T>().value(row_group).into(),
+                    max_values.as_primitive::<T>().value(row_group).into(),
+                )
+            }
+
+            fn extract_string_min_max<O: OffsetSizeTrait>(
+                row_group: usize,
+                min_values: &dyn Array,
+                max_values: &dyn Array,
+            ) -> MinMaxStats {
+                MinMaxStats::String(
+                    min_values.as_string::<O>().value(row_group).to_string(),
+                    max_values.as_string::<O>().value(row_group).to_string(),
+                )
+            }
+            
             for row_group in 0..metadata.num_row_groups() {
-                match field.data_type() {
-                    datafusion::arrow::datatypes::DataType::Int8 => {
-                        let min_values = min_values.as_primitive::<Int8Type>();
-                        let max_values = max_values.as_primitive::<Int8Type>();
-                        let min = min_values.value(row_group) as i64;
-                        let max = max_values.value(row_group) as i64;
-                        let column_statistics = ColumnStatistics {
-                            null_count: null_counts.value(row_group) as i64,
-                            stats: MinMaxStats::Int(min, max),
-                        };
-                        row_group_statistics[row_group]
-                            .column_statistics
-                            .push(column_statistics);
-                    }
-                    datafusion::arrow::datatypes::DataType::UInt8 => {
-                        let min_values = min_values.as_primitive::<UInt8Type>();
-                        let max_values = max_values.as_primitive::<UInt8Type>();
-                        let min = min_values.value(row_group) as i64;
-                        let max = max_values.value(row_group) as i64;
-                        let column_statistics = ColumnStatistics {
-                            null_count: null_counts.value(row_group) as i64,
-                            stats: MinMaxStats::Int(min, max),
-                        };
-                        row_group_statistics[row_group]
-                            .column_statistics
-                            .push(column_statistics);
-                    }
-                    datafusion::arrow::datatypes::DataType::Int16 => {
-                        let min_values = min_values.as_primitive::<Int16Type>();
-                        let max_values = max_values.as_primitive::<Int16Type>();
-                        let min = min_values.value(row_group) as i64;
-                        let max = max_values.value(row_group) as i64;
-                        let column_statistics = ColumnStatistics {
-                            null_count: null_counts.value(row_group) as i64,
-                            stats: MinMaxStats::Int(min, max),
-                        };
-                        row_group_statistics[row_group]
-                            .column_statistics
-                            .push(column_statistics);
-                    }
-                    datafusion::arrow::datatypes::DataType::UInt16 => {
-                        let min_values = min_values.as_primitive::<UInt16Type>();
-                        let max_values = max_values.as_primitive::<UInt16Type>();
-                        let min = min_values.value(row_group) as i64;
-                        let max = max_values.value(row_group) as i64;
-                        let column_statistics = ColumnStatistics {
-                            null_count: null_counts.value(row_group) as i64,
-                            stats: MinMaxStats::Int(min, max),
-                        };
-                        row_group_statistics[row_group]
-                            .column_statistics
-                            .push(column_statistics);
-                    }
-                    datafusion::arrow::datatypes::DataType::Int32 => {
-                        let min_values = min_values.as_primitive::<Int32Type>();
-                        let max_values = max_values.as_primitive::<Int32Type>();
-                        let min = min_values.value(row_group) as i64;
-                        let max = max_values.value(row_group) as i64;
-                        let column_statistics = ColumnStatistics {
-                            null_count: null_counts.value(row_group) as i64,
-                            stats: MinMaxStats::Int(min, max),
-                        };
-                        row_group_statistics[row_group]
-                            .column_statistics
-                            .push(column_statistics);
-                    }
-                    datafusion::arrow::datatypes::DataType::UInt32 => {
-                        let min_values = min_values.as_primitive::<UInt32Type>();
-                        let max_values = max_values.as_primitive::<UInt32Type>();
-                        let min = min_values.value(row_group) as i64;
-                        let max = max_values.value(row_group) as i64;
-                        let column_statistics = ColumnStatistics {
-                            null_count: null_counts.value(row_group) as i64,
-                            stats: MinMaxStats::Int(min, max),
-                        };
-                        row_group_statistics[row_group]
-                            .column_statistics
-                            .push(column_statistics);
-                    }
-                    datafusion::arrow::datatypes::DataType::Int64 => {
-                        let min_values = min_values.as_primitive::<Int64Type>();
-                        let max_values = max_values.as_primitive::<Int64Type>();
-                        let min = min_values.value(row_group);
-                        let max = max_values.value(row_group);
-                        let column_statistics = ColumnStatistics {
-                            null_count: null_counts.value(row_group) as i64,
-                            stats: MinMaxStats::Int(min, max),
-                        };
-                        row_group_statistics[row_group]
-                            .column_statistics
-                            .push(column_statistics);
-                    }
-                    datafusion::arrow::datatypes::DataType::Utf8 => {
-                        let min_values = min_values.as_string::<i32>();
-                        let max_values = max_values.as_string::<i32>();
-                        let min = min_values.value(row_group).to_string();
-                        let max = max_values.value(row_group).to_string();
-                        let column_statistics = ColumnStatistics {
-                            null_count: null_counts.value(row_group) as i64,
-                            stats: MinMaxStats::String(min, max),
-                        };
-                        row_group_statistics[row_group]
-                            .column_statistics
-                            .push(column_statistics);
-                    }
-                    datafusion::arrow::datatypes::DataType::LargeUtf8 => {
-                        let min_values = min_values.as_string::<i64>();
-                        let max_values = max_values.as_string::<i64>();
-                        let min = min_values.value(row_group).to_string();
-                        let max = max_values.value(row_group).to_string();
-                        let column_statistics = ColumnStatistics {
-                            null_count: null_counts.value(row_group) as i64,
-                            stats: MinMaxStats::String(min, max),
-                        };
-                        row_group_statistics[row_group]
-                            .column_statistics
-                            .push(column_statistics);
-                    }
-                    _ => {} // ignore other types, we just don't put them in the index and filters will not be pushed down
-                }
+                let stats = match field.data_type() {
+                    datafusion::arrow::datatypes::DataType::Int8 => extract_numeric_min_max::<Int8Type>(row_group, &min_values, &max_values),
+                    datafusion::arrow::datatypes::DataType::UInt8 => extract_numeric_min_max::<UInt8Type>(row_group, &min_values, &max_values),
+                    datafusion::arrow::datatypes::DataType::Int16 => extract_numeric_min_max::<Int16Type>(row_group, &min_values, &max_values),
+                    datafusion::arrow::datatypes::DataType::UInt16 => extract_numeric_min_max::<UInt16Type>(row_group, &min_values, &max_values),
+                    datafusion::arrow::datatypes::DataType::Int32 => extract_numeric_min_max::<Int32Type>(row_group, &min_values, &max_values),
+                    datafusion::arrow::datatypes::DataType::UInt32 => extract_numeric_min_max::<UInt32Type>(row_group, &min_values, &max_values),
+                    datafusion::arrow::datatypes::DataType::Int64 => extract_numeric_min_max::<Int64Type>(row_group, &min_values, &max_values),
+                    // TODO: UInt64?
+                    datafusion::arrow::datatypes::DataType::Utf8 => extract_string_min_max::<i32>(row_group, &min_values, &max_values),
+                    datafusion::arrow::datatypes::DataType::LargeUtf8 => extract_string_min_max::<i64>(row_group, &min_values, &max_values),
+                    _ => continue, // ignore other types, we just don't put them in the index and filters will not be pushed down
+                };
+                let column_statistics = ColumnStatistics {
+                    null_count: null_counts.value(row_group) as i64,
+                    stats,
+                };
+                row_group_statistics[row_group]
+                    .column_statistics
+                    .push(column_statistics);
             }
         }
 
